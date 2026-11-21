@@ -1,0 +1,33 @@
+commit d34f466819e31b19009ea1921b611ff4c2943e8b
+Author: orangepi <orangepi@local>
+Date:   Sat Nov 21 18:31:26 2026 +0000
+
+    Citron WS2805 remap: dies wired out->{CW,WW,G,B,R} (order 5)
+    
+    The WS2805 drops physical frame {G,R,B,WW,CW}; this light has its dies
+    potted on {CW,WW,G,B,R}. With the stored colorOrder=5 the corrected
+    layout yields channelMap {CW,WW,G,B,R} so RGB/WW/CW light the right dies.
+
+diff --git a/wled00/bus_wrapper.h b/wled00/bus_wrapper.h
+index 1785eb82..8ebe338e 100644
+--- a/wled00/bus_wrapper.h
++++ b/wled00/bus_wrapper.h
+@@ -43,6 +43,9 @@ inline const LegacyLayout& getLegacyChannelLayout(uint8_t busType) {
+   static const LegacyLayout grb     = {3, {LF_G, LF_R, LF_B,  LF_PAD, LF_PAD, LF_PAD}}; // WS2812/13, WS2811_400KHZ, LPD8806, LPD6803, TM1914, APA106
+   static const LegacyLayout grbw    = {4, {LF_G, LF_R, LF_B,  LF_W,   LF_PAD, LF_PAD}}; // SK6812_RGBW
+   static const LegacyLayout grbwwcw = {5, {LF_G, LF_R, LF_B,  LF_W,   LF_CW,  LF_PAD}}; // WS2805 (NeoGrbwwFeature)
++  // CITRON: WS2805 light whose dies are wired out-> {CW,WW,G,B,R}. Physical NPB frame is {G,R,B,WW,CW},
++  // so with colorOrder=5 (GBR) the layout below yields channelMap = {CW,WW,G,B,R} (see getLegacyChannelLayout->legacyColorOrderToChannelMap).
++  static const LegacyLayout ws2805Citron = {5, {LF_CW, LF_W,   LF_G,   LF_R,   LF_B,   LF_PAD}};
+   static const LegacyLayout brg     = {3, {LF_B, LF_R, LF_G,  LF_PAD, LF_PAD, LF_PAD}}; // TM1829 (NeoBrgFeature)
+   static const LegacyLayout rgb     = {3, {LF_R, LF_G, LF_B,  LF_PAD, LF_PAD, LF_PAD}}; // UCS8903 (16-bit)
+   static const LegacyLayout rgbw    = {4, {LF_R, LF_G, LF_B,  LF_W,   LF_PAD, LF_PAD}}; // UCS8904 (16-bit)
+@@ -58,7 +61,7 @@ inline const LegacyLayout& getLegacyChannelLayout(uint8_t busType) {
+     case TYPE_TM1814: // fallthrough
+     case TYPE_TM1815:                 return wrgb;
+     case TYPE_FW1906:                 return grbcwx;
+-    case TYPE_WS2805:                 return grbwwcw;
++    case TYPE_WS2805:                 return ws2805Citron;
+     case TYPE_SM16825:                return rgbcww;
+     case TYPE_WS2801:                 return rbg;
+     case TYPE_APA102: // fallthrough

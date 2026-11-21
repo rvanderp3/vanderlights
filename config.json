@@ -1,0 +1,21 @@
+{
+  "throttle_ms": 400,
+  "delta_threshold": 4,
+  "bind_addr": "0.0.0.0",
+  "devices": {
+    "tree": {
+      "type": "hello_fairy",
+      "address": "BE:29:D8:00:02:FC",
+      "adapter": "hci0"
+    },
+    "bench": {
+      "type": "hello_fairy",
+      "address": "BE:29:D8:00:02:FC",
+      "adapter": "hci0"
+    }
+  },
+  "rgb": [
+    { "universe": 1, "address": 1, "device": "tree" },
+    { "universe": 1, "address": 4, "device": "bench" }
+  ]
+}
