@@ -1,129 +1,105 @@
-# Hello Fairy BLE controller (Orange Pi display coordinator)
+# vanderlights
 
-Controls **Hello Fairy** smart lights over Bluetooth from an Orange Pi.
-This is the seed of the Christmas-light display coordinator: it talks to the
-unit's ISSC chip (`49535343-...` = ASCII `ISSC`) over the BLE the TP-Link USB
-adapter originally scanned.
+Control **Hello Fairy** smart lights (ISSC BLE chip) from an Orange Pi.
 
-## Requirements
+Reverse-engineered the BLE protocol and built two tools:
 
-- Orange Pi/Linux with **BlueZ** and **PyGObject** (gi) — both already present here.
-  No venv / bleak needed; the transport is direct D-Bus GATT via `gi.repository.Gio`.
-- A Bluetooth adapter in radio range of the lights (`hci0` = the TP-Link with
-  external antenna is the default/primary; `hci1` = onboard UART).
+- **`netlightd.py`** — a **DDP → BLE bridge**: xLights sends DDP over the LAN,
+  the Pi turns it into BLE commands so each light is one controllable unit
+  (colour, brightness, or a built-in scene).
+- **`perled.py`** — **per-LED** control: push pictures, text, and images onto
+  the 30×20 pixel grid.
 
-## xLights integration (sACN -> BLE bridge)
+The full protocol is documented in [PROTOCOL.md](PROTOCOL.md).
 
-The Orange Pi runs a small bridge that turns **xLights' sACN (E1.31) output**
-into BLE commands so each Hello Fairy string is a **single RGB pixel**:
+## The lights
 
-```
-xLights  ->  sACN/E1.31 over LAN  ->  bridge.py  ->  BLE -> Hello Fairy
-```
+Each unit is model **M181**, firmware **2.2.9**, a **30×20 = 600 LED** curtain
+(column-major, `index = x*20 + y`). Per-pixel colour is **hue-only** (1 byte:
+`hue/2` 0–179, `255` white, `254` off) — no per-pixel RGB/dimming.
 
-Run it (from `.venv`, which has the `sacn` receiver):
+## Setup
 
 ```sh
-.venv/bin/python bridge.py -c config.json            # live
-.venv/bin/python bridge.py -c config.json --dry-run  # log only, no BLE
-.venv/bin/python bridge.py -c config.json --selftest # push test frames locally
+python3 -m venv venv
+./venv/bin/pip install bleak pillow
 ```
 
-**Config** maps each 3-channel DMX group to a device:
+`netlightd.py` only needs `bleak`; `perled.py` also needs `pillow`.
 
-```json
-{ "universe": 1, "address": 1, "device": "tree" }   // ch 1,2,3 = R,G,B
+### Bridge as a service
+
+```sh
+sudo systemctl link "$PWD/netlightd.service"
+sudo systemctl daemon-reload
+sudo systemctl enable --now netlightd.service
 ```
 
-More device types = a subclass of `Device` in `devices.py` + an entry in
-`DEVICE_TYPES` (Govee/ELK/ESP32 etc. can be added the same way).
+## netlightd — DDP bridge
 
-### Setting it up in xLights
+Listens on UDP **`192.168.0.28:4048`** for DDP (as sent by xLights) and pushes
+state changes to the lights. Each net uses 6 channels:
 
-1. **Universe/Controller**: add a controller/output for sACN (E1.31). xLights
-   sends over multicast (the bridge's default) or you can set unicast to the
-   Pi's IP via `listen_on` in the config.
-2. **Model**: create a **1-node RGB model** per Hello Fairy string (a single
-   pixel = whole string). Wire each model's 3 channels to the matching
-   `universe`/`address` in the config.
-3. **Expectations**: BLE is throttled by the bridge (default 400 ms, deadband
-   `delta_threshold`), so sequence these as slow-changing "dumb color" lights
-   — don't expect per-frame pixel flashing.
+```
++0 R  +1 G  +2 B  +3 brightness  +4 mode  +5 speed
+```
 
-### Notes / quirks learned
-- The unit only wakes on a **direct connect-by-address**; the bridge connects
-  lazily on first use and retries if the light was off. Ensure lights are
-  powered on at the wall.
-- xLights sends incrementing sACN **sequence numbers**; a portion of the list
-  drops packets whose sequence doesn't advance (a test artifact, not a bridge
-  issue).
-- The discovered unit is a **string controller** (`M181`, firmware 2.2.9) —
-  power / color / presets only, not per-pixel.
+- `brightness` 0–255 → value 0–1000; `0` turns the light off.
+- `mode` **0** = solid RGB colour; **1–58** = a built-in scene (see scenes below).
+- `speed` is reserved (scenes expose no speed in this protocol).
+
+`config.json` maps each net to a BT-MAC + DDP offset. Run `--list`, `--scenes`,
+or `--probe MAC --color rrggbb` to inspect/test.
+
+## perled — per-LED pictures, text, images
+
+Stop the bridge first so it releases the BLE link, then e.g.:
+
+```sh
+sudo systemctl stop netlightd
+./venv/bin/python perled.py <MAC> --fill 0            # solid red
+./venv/bin/python perled.py <MAC> --gradient          # rainbow gradient
+./venv/bin/python perled.py <MAC> --checker           # checkerboard
+./venv/bin/python perled.py <MAC> --text "HELLO"       # text as a picture
+./venv/bin/python perled.py <MAC> --image logo.png     # an image (fit 30x20)
+sudo systemctl start netlightd                        # resume bridge
+```
+
+Notes:
+
+- Colours are **hue-only**, so fine image detail and photo gradients are lost —
+  bold shapes and solid colours read best.
+- Multi-frame **animations are unreliable** on the M181 (the firmware drops the
+  BLE link partway through an animation upload). Static pictures are solid.
+
+## Named scene presets
+
+Set the `mode` channel to one of these (see `netlightd.py --scenes`):
+
+| mode | scene | mode | scene |
+|---|---|---|---|
+| 8 | Blue with Pink Sparkle | 40 | Red Gold |
+| 17 | Fireworks | 41 | Blue White Dissolve |
+| 18 | Xmas | 46 | Valentine |
+| 20 | Halloween | 47 | St. Patrick |
+| 39 | July 4th | 48 | May Day |
+| 50 | Candy Cane | 54 | Snow Day |
+| 56 | Blue Sparkle | 57 | White Sparkle |
+
+## xLights
+
+Add a **DDP** output → `192.168.0.28:4048`, one universe, 24 channels used
+(6 per net). Wire each net's model to `R,G,B,brightness,mode,speed`. Leave mode
+at 0 for plain colours; set it 1–58 for effects.
 
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `hello_fairy.py` | `HelloFairy` controller (connect / power / color / preset / effect / status / info) |
-| `devices.py` | device abstraction + registry (add new BLE targets here) |
-| `bridge.py` | xLights sACN/E1.31 -> device bridge |
-| `config.json` | DMX universe/channel -> device mapping |
-| `hf_cli.py` | command-line front end for a single light |
-| `example_show.py` | short single-light demo |
-
-## Usage
-
-```sh
-# status / info (non-destructive)
-python3 hf_cli.py --addr BE:29:D8:00:02:FC status
-python3 hf_cli.py --addr BE:29:D8:00:02:FC info
-
-# controls
-python3 hf_cli.py --addr BE:29:D8:00:02:FC power on|off
-python3 hf_cli.py --addr BE:29:D8:00:02:FC color 120 100 100      # HSV (h s v)
-python3 hf_cli.py --addr BE:29:D8:00:02:FC rgb 255 0 0
-python3 hf_cli.py --addr BE:29:D8:00:02:FC preset 18              # Xmas
-python3 hf_cli.py --addr BE:29:D8:00:02:FC effect "Candy Cane"
-
-# list preset numbers
-python3 hf_cli.py --effects
-
-# discover (best-effort; the unit only wakes on a directed connect-by-address)
-python3 hf_cli.py scan
-```
-
-## Protocol (reverse-engineered)
-
-```
-packet  = AA <cmd> <payload_len> <payload...> <checksum>
-checksum = sum(preceding bytes) mod 256
-ACKs:    power -> AA 02 00 AC      color/preset -> AA 03 00 AD
-```
-
-| Command | Payload |
-|---------|---------|
-| info    | `00`  (empty) |
-| status  | `01`  (empty) |
-| power   | `02` `[01/00]` |
-| color   | `03` `[01, Hhi,Hlo, Shi,Slo, Vhi,Vlo]`  (mode 1, S*10, V*10) |
-| preset  | `03` `[02, preset, Bhi,Blo]`  (mode 2, brightness*10) |
-
-The device replies on the notify characteristic; the controller reads its
-`Value` property (no fd/signal plumbing needed). Confirmed against a live
-`M181` unit (firmware `2.2.9`): status, info, power and preset ACKs all
-validate.
-
-## Model / status note
-
-The discovered unit reports raw model **M181**, firmware **2.2.9**. The fancy
-DIY curtain full-frame upload (D0/DA, 400-pixel 20x20) in some Hello Fairy
-docs is **not** applicable to this string unit — it supports power, color and
-the preset effects (`--effects`) only.
-
-## Adapter note
-
-Discovery/scanning is unreliable in this environment and the unit may not
-advertise continuously, but a **direct connect-by-address** always reaches it.
-If the lights don't respond: power them on at the wall, then run `status`
-again. To use the onboard radio instead of the TP-Link, pass a different
-adapter to `HelloFairy(addr, adapter="hci1")`.
+| `netlightd.py` | DDP → BLE bridge (solid colour / scene per net) |
+| `perled.py` | per-LED pictures, text, images |
+| `ddptest.py` | send synthetic DDP test packets |
+| `pixel_test.py` | low-level DIY-upload diagnostics |
+| `config.json` | net → MAC / DDP-offset mapping |
+| `netlightd.service` | systemd unit |
+| `PROTOCOL.md` | the reverse-engineered protocol |

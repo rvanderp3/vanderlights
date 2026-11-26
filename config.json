@@ -1,21 +1,32 @@
 {
-  "throttle_ms": 400,
-  "delta_threshold": 4,
-  "bind_addr": "0.0.0.0",
-  "devices": {
-    "tree": {
-      "type": "hello_fairy",
-      "address": "BE:29:D8:00:02:FC",
-      "adapter": "hci0"
+  "listen": "0.0.0.0",
+  "port": 4048,
+  "interval": 0.2,
+  "heartbeat": 20.0,
+  "nets": [
+    {
+      "name": "net1",
+      "mac": "BE:29:D8:00:02:FC",
+      "offset": 0,
+      "channels": ["R", "G", "B", "brightness", "mode", "speed"]
     },
-    "bench": {
-      "type": "hello_fairy",
-      "address": "BE:29:D8:00:02:FC",
-      "adapter": "hci0"
+    {
+      "name": "net2",
+      "mac": "BE:29:D8:00:03:7E",
+      "offset": 6,
+      "channels": ["R", "G", "B", "brightness", "mode", "speed"]
+    },
+    {
+      "name": "net3",
+      "mac": "BE:29:D8:00:05:63",
+      "offset": 12,
+      "channels": ["R", "G", "B", "brightness", "mode", "speed"]
+    },
+    {
+      "name": "net4",
+      "mac": "BE:29:D8:00:01:4F",
+      "offset": 18,
+      "channels": ["R", "G", "B", "brightness", "mode", "speed"]
     }
-  },
-  "rgb": [
-    { "universe": 1, "address": 1, "device": "tree" },
-    { "universe": 1, "address": 4, "device": "bench" }
   ]
 }

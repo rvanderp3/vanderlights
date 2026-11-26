@@ -1,0 +1,14 @@
+[Unit]
+Description=netlightd: DDP-to-BLE bridge for Hello Fairy net lights
+After=bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+User=orangepi
+ExecStart=/home/orangepi/netlight/venv/bin/python /home/orangepi/netlight/netlightd.py --config /home/orangepi/netlight/config.json
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
